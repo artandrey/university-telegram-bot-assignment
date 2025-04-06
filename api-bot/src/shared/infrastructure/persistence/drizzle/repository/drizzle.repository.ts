@@ -1,4 +1,5 @@
 import { InferSelectModel, Table, eq } from 'drizzle-orm';
+import { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import { IDataAccessMapper } from '~shared/domain/mappers/data-access-mapper.interface';
@@ -31,11 +32,10 @@ export abstract class DrizzleRepository<
   Id extends InferSelectModel<Td['table']>[Td['idKey']] = InferSelectModel<Td['table']>[Td['idKey']],
 > implements IBaseRepository<TEntity, Id>
 {
-  constructor(
-    private readonly tableDefinition: Td,
-    protected readonly db: NodePgDatabase<S>,
-    protected readonly mapper: IDataAccessMapper<TEntity, TPersistence>,
-  ) {}
+  protected abstract readonly tableDefinition: Td;
+  protected db: BetterSQLite3Database<S>;
+
+  constructor(protected readonly mapper: IDataAccessMapper<TEntity, TPersistence>) {}
 
   public async findById(id: Id): Promise<TEntity> {
     const [result] = await this.db
@@ -46,27 +46,26 @@ export abstract class DrizzleRepository<
     if (!result) return null;
     this.mapper.toDomain(result as any);
   }
-  public async create(entity: TEntity): Promise<TEntity> {
-    const [result] = (await this.db
-      .insert(this.tableDefinition.table)
-      .values(this.mapper.toPersistence(entity))
-      .returning()) as any[];
-    if (!result) return null;
-    this.mapper.toDomain(result as any);
-  }
-  public async save(entity: TEntity): Promise<TEntity> {
+
+  public async save(entity: TEntity): Promise<Id> {
     const [result] = (await this.db
       .insert(this.tableDefinition.table)
       .values(this.mapper.toPersistence(entity))
       .onConflictDoUpdate({ target: [this.tableDefinition.table[this.tableDefinition.idKey]], set: entity })
-      .returning()) as any[];
+      .returning({
+        [this.tableDefinition.idKey]: this.tableDefinition.table[this.tableDefinition.idKey],
+      })) as any[];
     if (!result) return null;
-    this.mapper.toDomain(result as any);
+    return result[this.tableDefinition.idKey];
   }
 
   public async delete(id: Id): Promise<void> {
     await this.db
       .delete(this.tableDefinition.table)
       .where(eq(this.tableDefinition.table[this.tableDefinition.idKey], id));
+  }
+
+  public _setDatasource(db: BetterSQLite3Database<S>): void {
+    this.db = db;
   }
 }

@@ -1,3 +1,5 @@
+import { ISessionRepository } from '~modules/sessions/domain/repositories/session-repository.interface';
+
 export interface IDbContext {
   startTransaction(): Promise<void>;
 
@@ -14,4 +16,6 @@ export interface IDbContext extends IDbRepositories {
   commitTransaction(): Promise<void>;
 
   rollbackTransaction(): Promise<void>;
+
+  readonly sessionRepository: ISessionRepository;
 }

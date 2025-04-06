@@ -8,10 +8,10 @@ import { EventDispatcher } from './application/events/event-dispatcher/implement
 import { AppConfigModel } from './application/models/app-config.model';
 import { IEventIntegrationService } from './application/services/event-integration-service.interface';
 import { BaseToken } from './constants';
-import { DatabaseModule } from './infrastructure/database/database.module';
 import { EventEmitterEventSource } from './infrastructure/events/event-sources/event-emitter/event-emitter.event-source';
 import { EventEmitterEventPublisher } from './infrastructure/events/publishers/event-emitter/event-emitter.event-publisher';
 import { InMemoryEventIntegrationService } from './infrastructure/events/services/event-integration/in-memory/in-memory-event-integration.service';
+import { DatabaseModule } from './infrastructure/persistence/database.module';
 import { validateConfig } from './infrastructure/util/validate-config';
 
 @Global()

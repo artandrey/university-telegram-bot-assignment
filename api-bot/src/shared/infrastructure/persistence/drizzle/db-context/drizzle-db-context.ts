@@ -1,17 +1,19 @@
 import { Inject, Injectable, Logger, Scope } from '@nestjs/common';
 import { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
+import { ISessionRepository } from '~modules/sessions/domain/repositories/session-repository.interface';
+import { DrizzleSessionRepository } from '~modules/sessions/infrastructure/persistence/drizzle/repositories/drizzle-session.repoisotyr';
 import { IDbContext } from '~shared/application/services/db-context.interface';
 
 import { CoreToken } from 'src/core/constants';
 import { SQLITE_DB } from 'src/lib/drizzle-sqlite';
 
 @Injectable({ scope: Scope.REQUEST })
-export class DrizzleDbContext<TSchema extends Record<string, unknown> = Record<string, never>> implements IDbContext {
-  protected _db: BetterSQLite3Database<TSchema>;
+export class DrizzleDbContext implements IDbContext {
+  protected _db: BetterSQLite3Database<any>;
 
   constructor(
-    @Inject(SQLITE_DB) db: BetterSQLite3Database<TSchema>,
+    @Inject(SQLITE_DB) db: BetterSQLite3Database<any>,
     @Inject(CoreToken.APP_LOGGER) private readonly logger: Logger,
   ) {
     this._db = db;
@@ -34,5 +36,10 @@ export class DrizzleDbContext<TSchema extends Record<string, unknown> = Record<s
     );
   }
 
-  private initRepositories() {}
+  @Inject(DrizzleSessionRepository)
+  public readonly sessionRepository: DrizzleSessionRepository;
+
+  private initRepositories() {
+    this.sessionRepository._setDatasource(this._db);
+  }
 }

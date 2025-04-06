@@ -6,6 +6,7 @@ import { BaseToken } from '~shared/constants';
 import { DrizzleSqliteModule } from 'src/lib/drizzle-sqlite';
 
 import { DrizzleDbContext } from './drizzle/db-context/drizzle-db-context';
+import { persistence } from './providers';
 import { mergeDbdSchema } from './schema/merged-schema';
 
 @Global()
@@ -21,7 +22,7 @@ import { mergeDbdSchema } from './schema/merged-schema';
       inject: [BaseToken.APP_CONFIG],
     }),
   ],
-  providers: [{ provide: BaseToken.DB_CONTEXT, useClass: DrizzleDbContext }],
+  providers: [{ provide: BaseToken.DB_CONTEXT, useClass: DrizzleDbContext }, ...persistence],
   exports: [BaseToken.DB_CONTEXT],
 })
 export class DatabaseModule {}
