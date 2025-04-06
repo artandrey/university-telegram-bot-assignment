@@ -1,3 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
 # Repository Creation Guide
 
 This guide explains how to create data repositories following the established pattern in this project. The primary focus is on using Drizzle ORM, but the principles apply broadly.

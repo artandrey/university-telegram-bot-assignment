@@ -1,3 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
 # Use Case Creation Guide
 
 This guide details the process for creating use cases (Commands and Queries) within the project structure.
