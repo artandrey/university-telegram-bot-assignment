@@ -1,17 +1,17 @@
 import { Inject, Injectable, Logger, Scope } from '@nestjs/common';
-import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { IDbContext } from '~shared/application/services/db-context.interface';
 
 import { CoreToken } from 'src/core/constants';
-import { POSTGRES_DB } from 'src/lib/drizzle-postgres';
+import { SQLITE_DB } from 'src/lib/drizzle-sqlite';
 
 @Injectable({ scope: Scope.REQUEST })
-export class DrizzleDbContext implements IDbContext {
-  private _db: NodePgDatabase<any>;
+export class DrizzleDbContext<TSchema extends Record<string, unknown> = Record<string, never>> implements IDbContext {
+  protected _db: BetterSQLite3Database<TSchema>;
 
   constructor(
-    @Inject(POSTGRES_DB) db: NodePgDatabase<any>,
+    @Inject(SQLITE_DB) db: BetterSQLite3Database<TSchema>,
     @Inject(CoreToken.APP_LOGGER) private readonly logger: Logger,
   ) {
     this._db = db;

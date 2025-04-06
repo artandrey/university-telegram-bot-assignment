@@ -3,7 +3,7 @@ import { Global, Module } from '@nestjs/common';
 import { IAppConfigService } from '~shared/application/services/app-config-service.interface';
 import { BaseToken } from '~shared/constants';
 
-import { DrizzlePostgresModule } from 'src/lib/drizzle-postgres';
+import { DrizzleSqliteModule } from 'src/lib/drizzle-sqlite';
 
 import { DrizzleDbContext } from './drizzle/db-context/drizzle-db-context';
 import { mergeDbdSchema } from './schema/merged-schema';
@@ -11,11 +11,10 @@ import { mergeDbdSchema } from './schema/merged-schema';
 @Global()
 @Module({
   imports: [
-    DrizzlePostgresModule.registerAsync({
+    DrizzleSqliteModule.registerAsync({
       useFactory: (appConfig: IAppConfigService) => ({
         db: {
-          config: { connectionString: appConfig.get('DB_URL') },
-          connection: 'pool',
+          url: appConfig.get('DB_URL'),
         },
         schema: mergeDbdSchema,
       }),

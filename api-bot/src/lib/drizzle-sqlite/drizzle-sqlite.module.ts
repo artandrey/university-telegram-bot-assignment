@@ -1,12 +1,12 @@
 import { ConfigurableModuleBuilder, DynamicModule, Module } from '@nestjs/common';
 
-import { POSTGRES_DB } from './constants';
-import { DrizzlePostgresService } from './services/drizzle-postgres/drizzle-postgres.service';
-import { IDrizzlePostgresModuleOptions } from './types/drizzle-postgres-module-options.interface';
+import { SQLITE_DB } from './constants';
+import { DrizzleSqliteService } from './services/drizzle-sqlite/drizzle-sqlite.service';
+import { IDrizzleSqliteModuleOptions } from './types/drizzle-sqlite-module-options.interface';
 import { IWithProviderToken } from './with-provider-token.interface';
 
 const { ConfigurableModuleClass, ASYNC_OPTIONS_TYPE, MODULE_OPTIONS_TOKEN, OPTIONS_TYPE } =
-  new ConfigurableModuleBuilder<IDrizzlePostgresModuleOptions>()
+  new ConfigurableModuleBuilder<IDrizzleSqliteModuleOptions>()
     .setClassMethodName('register')
     .setExtras({ isGlobal: true }, (definition, extras) => ({
       ...definition,
@@ -18,20 +18,20 @@ type Options = typeof OPTIONS_TYPE & IWithProviderToken;
 type AsyncOptions = typeof ASYNC_OPTIONS_TYPE & IWithProviderToken;
 
 @Module({})
-export class DrizzlePostgresModule extends ConfigurableModuleClass {
+export class DrizzleSqliteModule extends ConfigurableModuleClass {
   public static register(options: Options): DynamicModule {
     const { providers = [], exports = [], ...other } = super.register(options);
-    const injectionToken = options.provideAs ?? POSTGRES_DB;
+    const injectionToken = options.provideAs ?? SQLITE_DB;
     return {
       providers: [
         ...providers,
-        DrizzlePostgresService,
+        DrizzleSqliteService,
         {
           provide: injectionToken,
-          useFactory: async (drizzleService: DrizzlePostgresService) => {
+          useFactory: async (drizzleService: DrizzleSqliteService) => {
             return drizzleService.getDrizzle(options.db, options.schema);
           },
-          inject: [DrizzlePostgresService],
+          inject: [DrizzleSqliteService],
         },
       ],
       exports: [...exports, injectionToken],
@@ -41,18 +41,18 @@ export class DrizzlePostgresModule extends ConfigurableModuleClass {
 
   public static registerAsync(options: AsyncOptions): DynamicModule {
     const { providers = [], exports = [], ...other } = super.registerAsync(options);
-    const injectionToken = options.provideAs ?? POSTGRES_DB;
+    const injectionToken = options.provideAs ?? SQLITE_DB;
 
     return {
       providers: [
         ...providers,
-        DrizzlePostgresService,
+        DrizzleSqliteService,
         {
           provide: injectionToken,
-          useFactory: async (drizzleService: DrizzlePostgresService, options: IDrizzlePostgresModuleOptions) => {
+          useFactory: async (drizzleService: DrizzleSqliteService, options: IDrizzleSqliteModuleOptions) => {
             return drizzleService.getDrizzle(options.db, options.schema);
           },
-          inject: [DrizzlePostgresService, MODULE_OPTIONS_TOKEN],
+          inject: [DrizzleSqliteService, MODULE_OPTIONS_TOKEN],
         },
       ],
       exports: [...exports, injectionToken],
