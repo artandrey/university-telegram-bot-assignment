@@ -1,0 +1,182 @@
+# Use Case Creation Guide
+
+This guide details the process for creating use cases (Commands and Queries) within the project structure.
+
+## Core Concepts
+
+Use cases represent specific application actions or data retrieval operations. They orchestrate domain logic and data persistence through repositories.
+
+- **Command:** Represents an action that changes the system state (e.g., creating, updating, deleting data). Typically involves transactions.
+- **Query:** Represents an operation that retrieves data without changing system state. Typically does not require transactions.
+
+Key components involved:
+
+1.  **Use Case Interface:** Defines the contract for the use case, specifying input payload and output DTO types. Located in `src/modules/<module>/application/use-cases/<use-case-name>/`. Extends `IUseCase`.
+2.  **Use Case Implementation:** The concrete class implementing the use case logic. Located in the same directory. Extends `Command` or `Query` base class.
+3.  **Input Payload Interface:** Defines the structure of the data required by the use case. Often defined within the use case file.
+4.  **Data Transfer Objects (DTOs):** Define the structure of data passed into and returned from the use case. Located in `src/modules/<module>/application/dto/`.
+5.  **Abstract Base Classes (`Command`, `Query`):** Provide common functionality like transaction management (`Command`) and dependency injection (`DbContext`, `EventDispatcher`). Located in `src/shared/application/CQS/`.
+6.  **`IDbContext`:** An interface providing access to repositories and transaction control methods. The implementation (e.g., `DrizzleDbContext`) is injected into base `Command`/`Query` classes.
+7.  **Dependency Injection:** Wiring use cases within NestJS modules using specific DI tokens.
+
+## Step-by-Step Guide (Command Example)
+
+Let's create the `CreateSessionUseCase` command.
+
+**1. Define DTOs:**
+
+Create necessary Data Transfer Objects for input and output in `src/modules/<module>/application/dto/`. Use simple classes.
+
+- File Path: `api-bot/src/modules/sessions/application/dto/session.ts`
+- Content:
+
+```typescript
+// Base DTO (optional, for reuse)
+export class SessionDto {
+  id: string;
+  preferredLanguage: string;
+  preferredCurrency: string;
+}
+
+// DTO for the result of the creation
+export class CreateSessionResultDto {
+  id: string;
+}
+
+// DTO for the input data needed for creation
+// Often extends a base DTO or defines specific fields
+export class CreateSessionDto {
+  preferredLanguage: string;
+  preferredCurrency: string;
+}
+```
+
+**2. Define Use Case Interface and Payload:**
+
+In the use case file (`src/modules/<module>/application/use-cases/<use-case-name>/<use-case-name>.use-case.ts`), define the input payload interface and the use case interface extending `IUseCase`.
+
+- File Path: `api-bot/src/modules/sessions/application/use-cases/create-session/create-session.use-case.ts`
+- Content (Interfaces):
+
+```typescript
+import { IUseCase } from '~shared/application/use-cases/use-case.interface';
+import { CreateSessionDto, CreateSessionResultDto } from '../../dto/session';
+
+// Defines the structure expected by the use case's execute method
+export interface ICreateSessionPayload {
+  options: CreateSessionDto; // Use the DTO defined in Step 1
+}
+
+// Defines the use case contract, linking Payload and Result DTO
+export interface ICreateSessionUseCase
+  extends IUseCase<ICreateSessionPayload, CreateSessionResultDto> {}
+```
+
+- **`IUseCase`**: Located in `api-bot/src/shared/application/use-cases/use-case.interface.ts`. Defines the `execute(input: TInput): Promise<TOutput>` method signature.
+
+**3. Implement the Use Case:**
+
+Implement the use case class in the same file. It should extend the appropriate base class (`Command` or `Query`).
+
+- Extend `Command<PayloadType, ResultDtoType>` for state-changing operations.
+- Implement the `implementation()` method containing the core logic.
+- Access input via `this._input`.
+- Access repositories via `this._dbContext` (e.g., `this._dbContext.sessionRepository`).
+- Domain entities are instantiated and manipulated here.
+- The `Command` base class handles transaction start/commit/rollback around the `implementation()` call.
+
+- File Path: `api-bot/src/modules/sessions/application/use-cases/create-session/create-session.use-case.ts`
+- Content (Implementation):
+
+```typescript
+import { Session } from '~modules/sessions/domain/entities/session.entity';
+import { Command } from '~shared/application/CQS/command.abstract';
+// ... other imports ...
+
+// Extend Command, specifying Payload and Result types
+export class CreateSessionUseCase extends Command<
+  ICreateSessionPayload,
+  CreateSessionResultDto
+> {
+  // Core logic goes here
+  protected async implementation(): Promise<CreateSessionResultDto> {
+    const { options } = this._input; // Access input payload
+
+    // Create domain entity instance
+    const session = Session.builder()
+      .preferredLanguage(options.preferredLanguage)
+      .preferredCurrency(options.preferredCurrency)
+      .build();
+
+    // Use DbContext to access repository and save the entity
+    // Transaction is handled by the Command base class
+    await this._dbContext.sessionRepository.save(session);
+
+    // Return the result DTO
+    return {
+      id: session.id,
+    };
+  }
+}
+```
+
+- **`Command` Abstract Class**: Located in `api-bot/src/shared/application/CQS/command.abstract.ts`. Automatically injects `IDbContext` (as `_dbContext`) and `IEventDispatcher` (as `_eventDispatcher`). The `execute` method wraps the `implementation` call in a transaction managed by `_dbContext.startTransaction()`, `commitTransaction()`, and `rollbackTransaction()`.
+- **`IDbContext`**: Located in `api-bot/src/shared/application/services/db-context.interface.ts`. Defines the transaction methods and provides access to registered repositories (e.g., `sessionRepository`). The implementation (`DrizzleDbContext` in `api-bot/src/shared/infrastructure/persistence/drizzle/db-context/drizzle-db-context.ts`) injects the actual repository implementations and the database connection.
+
+**4. Define DI Token:**
+
+Define a unique dependency injection token for the use case interface, typically in a `constants.ts` file within the module.
+
+- File Path: `api-bot/src/modules/sessions/constants.ts`
+- Content:
+
+```typescript
+export enum SessionDiToken {
+  CREATE_SESSION_USE_CASE = 'CREATE_SESSION_USE_CASE',
+  // Add other use case tokens for this module here
+}
+```
+
+**5. Configure Dependency Injection:**
+
+Provide the use case implementation in the corresponding NestJS module file (`src/modules/<module>/infrastructure/nest/<module>.module.ts`). Use the DI token defined in Step 4 as the `provide` key and the implementation class as `useClass`.
+
+- File Path: `api-bot/src/modules/sessions/infrastructure/nest/sessions.module.ts`
+- Content:
+
+```typescript
+import { Module } from '@nestjs/common';
+import { CreateSessionUseCase } from '../../application/use-cases/create-session/create-session.use-case';
+import { SessionDiToken } from '../../constants'; // Import the tokens
+
+@Module({
+  providers: [
+    {
+      provide: SessionDiToken.CREATE_SESSION_USE_CASE, // Use the token
+      useClass: CreateSessionUseCase, // Provide the implementation class
+    },
+    // Add other use cases for this module here
+  ],
+  // Use cases are typically not exported unless needed by other modules directly
+})
+export class SessionsModule {}
+```
+
+## Query Use Cases
+
+Creating a Query use case is very similar:
+
+1.  Follow steps 1 (DTOs), 2 (Interface/Payload), 4 (DI Token), and 5 (DI Configuration) as above.
+2.  In Step 3 (Implementation), extend the `Query` abstract class (`~shared/application/CQS/query.abstract.ts`) instead of `Command`.
+3.  The `Query` base class does _not_ wrap the `implementation` in a transaction.
+4.  Queries should generally only read data using `this._dbContext` and map it to the result DTO.
+
+## Summary
+
+To create a new use case (Command or Query):
+
+1.  Define **DTOs** (`application/dto/`).
+2.  Define **Payload Interface** and **Use Case Interface** (`application/use-cases/.../`) extending `IUseCase`.
+3.  Implement **Use Case Class** (`application/use-cases/.../`) extending `Command` or `Query` and implementing the `implementation` method.
+4.  Define **DI Token** (`constants.ts`).
+5.  Configure **Provider** in the module (`infrastructure/nest/<module>.module.ts`) using the token and class.

@@ -1,247 +1,286 @@
 # Repository Creation Guide
 
-This guide details the steps required to create a new repository within the `api-bot` project, adhering to the established Clean Architecture and Domain-Driven Design (DDD) principles, utilizing Drizzle ORM for persistence.
+This guide explains how to create data repositories following the established pattern in this project. The primary focus is on using Drizzle ORM, but the principles apply broadly.
 
-**Goal:** Define data access logic for a specific domain aggregate root.
+## Core Concepts
 
-**Key Concepts:**
+Repositories abstract data persistence logic, providing a clean interface for use cases to interact with data sources without knowing the underlying implementation details (e.g., specific database or ORM).
 
-- **Domain Entity:** The core object representing the data within your business domain (`shared/domain/entities/entity.ts`).
-- **Repository Interface:** Defines the contract for data access operations specific to the entity (`modules/<module_name>/domain/repositories/<entity_name>-repository.interface.ts`). It extends `IBaseRepository`.
-- **Persistence Model:** The Drizzle schema definition representing the database table structure (`modules/<module_name>/infrastructure/persistence/drizzle/schema/<entity_name>.schema.ts`).
-- **Data Access Mapper:** Translates between the Domain Entity and the Persistence Model (`modules/<module_name>/infrastructure/persistence/drizzle/mappers/<entity_name>.mapper.ts`). Implements `IDataAccessMapper`.
-- **Repository Implementation:** Implements the Repository Interface using Drizzle ORM client provided via `IDbContext` (`modules/<module_name>/infrastructure/persistence/drizzle/repositories/<entity_name>.repository.ts`).
-- **Database Context (`IDbContext`):** Provides access to all registered repository implementations (`shared/application/services/db-context.interface.ts`).
+Key components involved:
 
-**Steps:**
+1.  **Domain Entity:** The core business object (e.g., `Session`). Located in `src/modules/<module>/domain/entities/`.
+2.  **Repository Interface:** Defines the contract for the repository. Located in `src/modules/<module>/domain/repositories/`. Extends `IBaseRepository`.
+3.  **Persistence Implementation:** The concrete implementation of the repository interface using a specific ORM/database. Located in `src/modules/<module>/infrastructure/persistence/<orm>/repositories/`. Extends a generic ORM-specific base repository (e.g., `DrizzleRepository`).
+4.  **Data Mapper:** Translates between the domain entity and the persistence model. Located in `src/modules/<module>/infrastructure/persistence/<orm>/mappers/`. Implements `IDataAccessMapper`.
+5.  **Database Schema:** Defines the database table structure. Located in `src/shared/infrastructure/persistence/schema/`.
+6.  **Dependency Injection:** Wiring everything together using NestJS modules.
 
-1.  **Define Domain Entity:**
+## Step-by-Step Guide
 
-    - If not already present, create the domain entity extending `Entity<TId>` in `modules/<module_name>/domain/entities/<entity_name>.ts`.
-    - Example: `SessionEntity extends Entity<string>`
+Follow these steps to create a new repository, using the `Session` entity as an example.
 
-2.  **Define Repository Interface:**
+**1. Define the Domain Entity:**
 
-    - Create an interface in `modules/<module_name>/domain/repositories/<entity_name>-repository.interface.ts`.
-    - Extend the generic `IBaseRepository<TEntity, TId>` from `shared/domain/repositories/base-repository.interface.ts`.
-    - Add any entity-specific query methods needed beyond the base CRUD operations.
-    - Example (`ISessionRepository`):
+Ensure your domain entity exists (e.g., `Session` in `api-bot/src/modules/sessions/domain/entities/session.entity.ts`). It should extend the base `Entity` class and define its properties and potentially custom ID types.
 
-      ```typescript
-      import { IBaseRepository } from '~shared/domain/repositories/base-repository.interface';
+Domain entities in this project utilize the Builder Pattern for construction, facilitated by the `class-constructor` library. This pattern simplifies object creation, especially when dealing with numerous optional properties.
 
-      import { SessionEntity } from '../entities/session.entity';
+**Key points for Entity creation:**
 
-      export interface ISessionRepository extends IBaseRepository<SessionEntity, string> {
-        // Add custom methods like findByUserId(userId: string): Promise<SessionEntity[]>;
-      }
-      ```
+- **Base Class:** Entities typically extend `Entity<IdType>` from `~shared/domain/entities/entity.ts`.
+- **Properties:** Define public properties. Optional properties can have default values.
+- **`tsconfig.json`:** Ensure `"useDefineForClassFields": true` or `"target": "ES2022"` (or higher) is set in your `tsconfig.json`. This is crucial for the `class-constructor` library to correctly identify class fields.
+- **Builder Method:** Implement a static `builder` method using `toBuilderMethod` from `class-constructor`.
+  - Use `.classAsOptionals()` if all optional properties are public members of the class.
+  - Use `.withOptionals<InterfaceName>()` if you need to set private properties (define an interface listing the optional properties without the private prefix, e.g., `_`).
 
-3.  **Define Drizzle Schema (Persistence Model):**
+```typescript
+// Example: api-bot/src/modules/sessions/domain/entities/session.entity.ts
+import { toBuilderMethod } from 'class-constructor';
 
-    - Create the Drizzle table schema in `modules/<module_name>/infrastructure/persistence/drizzle/schema/<entity_name>.schema.ts`.
-    - Use `pgTable` (or the appropriate function for your DB driver) to define columns matching the entity's properties.
-    - Export the schema object and the inferred `Select` and `Insert` types.
-    - Example (`sessionsSchema`):
+import { Entity } from '~shared/domain/entities/entity';
+import { Nominal } from '~shared/domain/types';
 
-      ```typescript
-      import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
-      import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
-      import { z } from 'zod';
+// Import the helper
 
-      export const sessionsSchema = pgTable('sessions', {
-        id: text('id').primaryKey(),
-        userId: text('user_id').notNull(),
-        // ... other columns
-        createdAt: timestamp('created_at').defaultNow().notNull(),
-        updatedAt: timestamp('updated_at').defaultNow().notNull(),
-      });
+export type SessionId = Nominal<string, 'SessionId'>;
 
-      export const SelectSessionSchema = createSelectSchema(sessionsSchema);
-      export const InsertSessionSchema = createInsertSchema(sessionsSchema);
+// Optional: Interface for private properties if needed for builder
+// interface SessionOptionals {
+//   preferredLanguage?: string;
+//   preferredCurrency?: string;
+// }
 
-      export type SessionPersistence = z.infer<typeof SelectSessionSchema>;
-      ```
+export class Session extends Entity<SessionId> {
+  // Properties (required ones might be set in constructor or via builder)
+  public readonly preferredLanguage: string;
+  public readonly preferredCurrency: string;
 
-    - **Important:** Add your new schema to the `mergedSchema` in `shared/infrastructure/persistence/drizzle/schema/merged-schema.ts`.
+  // Constructor (can be simple or handle required fields)
+  // The builder often bypasses the constructor for setting properties,
+  // but it might be needed for logic or required field enforcement without builder.
+  // Ensure properties are declared if not assigned in constructor when useDefineForClassFields is true.
 
-4.  **Implement Data Access Mapper:**
+  // --- Builder Implementation ---
+  // Use .classAsOptionals() if preferredLanguage/preferredCurrency were public optional fields
+  // public static builder = toBuilderMethod(Session).classAsOptionals();
 
-    - Create a class in `modules/<module_name>/infrastructure/persistence/drizzle/mappers/<entity_name>.mapper.ts`.
-    - Implement the `IDataAccessMapper<TEntity, TPersistence>` interface (you might need to create this generic interface if it doesn't exist in `shared/domain/mappers/`).
-    - Implement `toDomain(persistence: TPersistence): TEntity` and `toPersistence(entity: TEntity): TPersistence` methods.
-    - Use a library like `class-constructor` or manual mapping.
-    - Example (`SessionMapper`):
+  // Or, define an interface for optional properties if needed (e.g., for private fields)
+  // Ensure the interface properties match the intended builder methods
+  // public static builder = toBuilderMethod(Session).withOptionals<SessionOptionals>();
 
-      ```typescript
-      // Assuming this exists
-      import { Injectable } from '@nestjs/common';
-      import { plainToInstance } from 'class-transformer';
+  // --- Example Builder Definition (assuming properties are set via builder) ---
+  // This assumes the builder sets all required properties defined in the interface.
+  public static builder = toBuilderMethod(Session, (builder) => ({
+    // Define required fields for the initial builder call if any
+    // e.g., id: builder.id,
+  })).withOptionals<{
+    // List properties settable via builder methods
+    id: SessionId;
+    preferredLanguage: string;
+    preferredCurrency: string;
+  }>();
 
-      import { SessionEntity } from '~modules/sessions/domain/entities/session.entity';
-      import { IDataAccessMapper } from '~shared/domain/mappers/data-access-mapper.interface';
+  // --- Using the Builder ---
+  // const session = Session.builder() // Call static builder()
+  //   .id(generateSessionId())      // Set properties using builder methods
+  //   .preferredLanguage('en')
+  //   .preferredCurrency('USD')
+  //   .build();                     // Finalize object construction
 
-      import { SessionPersistence } from '../schema/sessions.schema';
+  // ... other domain logic ...
+}
+```
 
-      // Or use class-constructor
+**2. Define the Repository Interface:**
 
-      @Injectable() // Make it injectable if needed elsewhere or by the repository
-      export class SessionMapper implements IDataAccessMapper<SessionEntity, SessionPersistence> {
-        toDomain(persistence: SessionPersistence): SessionEntity {
-          // Map persistence fields to entity fields
-          return plainToInstance(SessionEntity, persistence); // Example using class-transformer
-        }
+Create an interface for your repository in `src/modules/<module>/domain/repositories/`. It should extend the generic `IBaseRepository`.
 
-        toPersistence(entity: SessionEntity): SessionPersistence {
-          // Map entity fields to persistence fields
-          // Be careful with readonly fields like id if not generated by DB
-          return {
-            id: entity.id,
-            userId: entity.userId,
-            // ... other fields
-            createdAt: entity.createdAt, // Ensure types match
-            updatedAt: entity.updatedAt,
-          };
-        }
-      }
-      ```
+- File Path: `api-bot/src/modules/sessions/domain/repositories/session-repository.interface.ts`
+- Content:
 
-5.  **Implement Repository:**
+```typescript
+import { IBaseRepository } from '~shared/domain/repositories/base-repository.interface';
 
-    - Create a class in `modules/<module_name>/infrastructure/persistence/drizzle/repositories/<entity_name>.repository.ts`.
-    - Implement the `I<EntityName>Repository` interface created in step 2.
-    - Inject the Drizzle database instance (`BetterSQLite3Database<MergedSchema>` or similar) typically via a token like `SQLITE_DB` or `DB_PROVIDER_TOKEN`.
-    - Inject the `Mapper` created in step 4.
-    - Use the injected DB instance and schema definition to implement the repository methods (findById, save, delete, custom methods).
-    - Use the mapper to convert between domain and persistence objects.
-    - Example (`DrizzleSessionRepository`):
+import { Session, SessionId } from '../entities/session.entity';
 
-      ```typescript
-      import { Inject, Injectable } from '@nestjs/common';
-      import { eq } from 'drizzle-orm';
-      import { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+export interface ISessionRepository extends IBaseRepository<Session, SessionId> {}
+```
 
-      import { SessionEntity } from '~modules/sessions/domain/entities/session.entity';
-      import { ISessionRepository } from '~modules/sessions/domain/repositories/session-repository.interface';
-      import { MergedSchema } from '~shared/infrastructure/persistence/drizzle/schema';
+- **`IBaseRepository`**: Located in `api-bot/src/shared/domain/repositories/base-repository.interface.ts`, it provides standard methods:
+  - `findById(id: Id): Promise<E>`
+  - `save(entity: E): Promise<Id>`
+  - `delete(id: Id): Promise<void>`
 
-      // Use the merged schema type
-      import { SQLITE_DB } from 'src/lib/drizzle-sqlite';
+**3. Define the Database Schema:**
 
-      import { SessionMapper } from '../mappers/session.mapper';
-      // Or your DB injection token
-      import { SessionPersistence, sessionsSchema } from '../schema/sessions.schema';
+Define the corresponding database table schema in `src/shared/infrastructure/persistence/schema/`. Use the appropriate ORM functions (e.g., `pgTable` for Drizzle with PostgreSQL). Ensure types match the domain entity, potentially using `$type` for custom nominal types.
 
-      @Injectable()
-      export class DrizzleSessionRepository implements ISessionRepository {
-        constructor(
-          @Inject(SQLITE_DB) private readonly db: BetterSQLite3Database<MergedSchema>,
-          private readonly mapper: SessionMapper,
-        ) {}
+- File Path: `api-bot/src/shared/infrastructure/persistence/schema/public-database-schema.ts` (or potentially another schema file depending on context)
+- Content:
 
-        async findById(id: string): Promise<SessionEntity | null> {
-          const [result] = await this.db.select().from(sessionsSchema).where(eq(sessionsSchema.id, id)).limit(1);
-          return result ? this.mapper.toDomain(result) : null;
-        }
+```typescript
+import { pgTable, text, uuid } from 'drizzle-orm/pg-core';
 
-        async save(entity: SessionEntity): Promise<string> {
-          const persistenceData = this.mapper.toPersistence(entity);
-          const [result] = await this.db
-            .insert(sessionsSchema)
-            .values(persistenceData)
-            .onConflictDoUpdate({ target: sessionsSchema.id, set: persistenceData }) // Assuming upsert logic
-            .returning({ id: sessionsSchema.id });
-          return result.id;
-        }
+import { SessionId } from '~modules/sessions/domain/entities/session.entity';
 
-        async delete(id: string): Promise<void> {
-          await this.db.delete(sessionsSchema).where(eq(sessionsSchema.id, id));
-        }
+export const sessions = pgTable('sessions', {
+  id: uuid('id').primaryKey().$type<SessionId>(), // Match SessionId type
+  preferredLanguage: text('preferred_language').notNull(),
+  preferredCurrency: text('preferred_currency').notNull(),
+});
+```
 
-        // Implement custom methods using this.db and this.mapper
-      }
-      ```
+**4. Implement the Data Mapper:**
 
-6.  **Register Repository in `IDbContext`:**
+Create a mapper class in `src/modules/<module>/infrastructure/persistence/<orm>/mappers/`. It implements the `IDataAccessMapper` interface.
 
-    - Add a readonly property for the new repository interface in `shared/application/services/db-context.interface.ts`.
+- **`IDataAccessMapper`**: Located in `api-bot/src/shared/domain/mappers/data-access-mapper.interface.ts`. Requires methods:
+  - `toPersistence(entity: TEntity): TPersistence`
+  - `toDomain(persistence: TPersistence): TEntity`
+- File Path: `api-bot/src/modules/sessions/infrastructure/persistence/drizzle/mappers/drizzle-session.mapper.ts`
+- Content:
 
-      ```typescript
-      import { ISessionRepository } from '~modules/sessions/domain/repositories/session-repository.interface';
+```typescript
+import { Injectable } from '@nestjs/common';
 
-      export interface IDbContext extends IDbRepositories {
-        // ... other repositories
-        readonly sessionRepository: ISessionRepository;
-      }
-      ```
+import { Session } from '~modules/sessions/domain/entities/session.entity';
+import { IDataAccessMapper } from '~shared/domain/mappers/data-access-mapper.interface';
+import { sessions } from '~shared/infrastructure/persistence/schema/public-database-schema';
 
-    - In the `DrizzleDbContext` implementation (`shared/infrastructure/persistence/drizzle/db-context/drizzle-db-context.ts`):
+// Derive the persistence type from the schema
+export type DrizzleSessionPersistence = typeof sessions.$inferSelect;
 
-      - Inject the new repository implementation (`DrizzleSessionRepository`).
-      - Assign the injected instance to the corresponding property.
+@Injectable()
+export class DrizzleSessionMapper implements IDataAccessMapper<Session, DrizzleSessionPersistence> {
+  toDomain(persistence: DrizzleSessionPersistence): Session {
+    // Map raw persistence data to the domain entity instance
+    return Session.builder()
+      .id(persistence.id)
+      .preferredLanguage(persistence.preferredLanguage)
+      .preferredCurrency(persistence.preferredCurrency)
+      .build();
+  }
 
-      ```typescript
-      import { ISessionRepository } from '~modules/sessions/domain/repositories/session-repository.interface';
-      import { DrizzleSessionRepository } from '~modules/sessions/infrastructure/persistence/drizzle/repositories/session.repository';
+  toPersistence(domain: Session): DrizzleSessionPersistence {
+    // Map domain entity instance to raw persistence data
+    return {
+      id: domain.id,
+      preferredLanguage: domain.preferredLanguage,
+      preferredCurrency: domain.preferredCurrency,
+    };
+  }
+}
+```
 
-      @Injectable({ scope: Scope.REQUEST }) // Or appropriate scope
-      export class DrizzleDbContext<TSchema extends Record<string, unknown> = MergedSchema> implements IDbContext {
-        // ... existing constructor and properties
+**5. Implement the Repository:**
 
-        public readonly sessionRepository: ISessionRepository;
+Create the repository implementation in `src/modules/<module>/infrastructure/persistence/<orm>/repositories/`.
 
-        constructor(
-          @Inject(SQLITE_DB) protected readonly db: BetterSQLite3Database<TSchema>,
-          @Inject(CoreToken.APP_LOGGER) private readonly logger: Logger,
-          // Inject new repository implementation
-          _sessionRepository: DrizzleSessionRepository,
-        ) {
-          // ... existing assignments
-          this.sessionRepository = _sessionRepository;
-        }
+- It should be `@Injectable()` (often with `Scope.REQUEST`).
+- It extends the generic ORM repository base class (e.g., `DrizzleRepository`).
+- It implements the specific repository interface created in Step 2.
+- Inject the corresponding mapper from Step 4.
+- Define `tableDefinition` using `TableDefinition.create(schema, idKey)`.
 
-        // ... other methods
-      }
-      ```
+- File Path: `api-bot/src/modules/sessions/infrastructure/persistence/drizzle/repositories/drizzle-session.repoisotyr.ts` (Note the typo in the original filename)
+- Content:
 
-7.  **Provide Repository Implementation in Module:**
+```typescript
+import { Inject, Injectable, Scope } from '@nestjs/common';
 
-    - Ensure the repository implementation (`DrizzleSessionRepository`), its mapper (`SessionMapper`), and the repository interface (`ISessionRepository`) are provided and exported within the relevant module (`modules/<module_name>/infrastructure/nest/<module_name>.module.ts` or a dedicated persistence module).
-    - This usually involves adding the implementation class to the `providers` array and the interface token mapped to the class. If the `DrizzleDbContext` is correctly set up and the repository is injected there, you might only need to provide the implementation class itself. Check the `DatabaseModule` (`shared/infrastructure/persistence/database.module.ts`) and module structure for the exact pattern. It's common to provide the implementation and map the interface token to it.
-    - Example within a hypothetical `SessionsPersistenceModule`:
+import { Session } from '~modules/sessions/domain/entities/session.entity';
+import { ISessionRepository } from '~modules/sessions/domain/repositories/session-repository.interface.ts';
+// Corrected path
+import { IDataAccessMapper } from '~shared/domain/mappers/data-access-mapper.interface';
+import {
+  DrizzleRepository,
+  TableDefinition,
+} from '~shared/infrastructure/persistence/drizzle/repository/drizzle.repository';
+import { sessions } from '~shared/infrastructure/persistence/schema/public-database-schema';
 
-      ```typescript
-      import { Module } from '@nestjs/common';
+import { DrizzleSessionMapper, DrizzleSessionPersistence } from '../mappers/drizzle-session.mapper';
 
-      import { BaseToken } from '~shared/constants';
+// Define table and primary key
+const tableDefinition = TableDefinition.create(sessions, 'id');
 
-      import { SessionMapper } from './drizzle/mappers/session.mapper';
-      import { DrizzleSessionRepository } from './drizzle/repositories/session.repository';
+@Injectable({ scope: Scope.REQUEST }) // Request scope is common if DbContext is request-scoped // Specify Entity and TableDefinition types // Implement the specific interface
+export class DrizzleSessionRepository
+  extends DrizzleRepository<Session, typeof tableDefinition>
+  implements ISessionRepository
+{
+  protected readonly tableDefinition = tableDefinition; // Assign the definition
 
-      // Assuming a token exists for ISessionRepository
+  constructor(
+    @Inject(DrizzleSessionMapper) // Inject the specific mapper
+    mapper: IDataAccessMapper<Session, DrizzleSessionPersistence>,
+  ) {
+    super(mapper); // Pass mapper to the base DrizzleRepository
+  }
+}
+```
 
-      // Define a token if not using BaseToken
-      export const SESSION_REPOSITORY_TOKEN = Symbol('ISessionRepository');
+- **`DrizzleRepository`**: Located in `api-bot/src/shared/infrastructure/persistence/drizzle/repository/drizzle.repository.ts`. Provides the base `findById`, `save`, and `delete` implementations using Drizzle, the `tableDefinition`, and the injected `mapper`. It expects the `db` instance to be set via the `_setDatasource` method (handled by `DrizzleDbContext`).
 
-      @Module({
-        providers: [
-          SessionMapper,
-          DrizzleSessionRepository,
-          // Map the interface token to the implementation class
-          {
-            provide: SESSION_REPOSITORY_TOKEN /* or BaseToken.SESSION_REPOSITORY */,
-            useClass: DrizzleSessionRepository,
-          },
-        ],
-        exports: [
-          SESSION_REPOSITORY_TOKEN, // Export the token
-        ],
-      })
-      export class SessionsPersistenceModule {}
-      ```
+**6. Configure Dependency Injection:**
 
-    - Ensure this persistence module is imported into the main module for the feature (e.g., `SessionsModule`).
+Ensure the new Mapper and Repository implementation are provided to the NestJS application, usually globally.
 
-**Summary:**
+- Add the Mapper and Repository classes to the `persistence` array.
+- File Path: `api-bot/src/shared/infrastructure/persistence/providers.ts`
+- Content:
 
-By following these steps, you create a well-structured repository that encapsulates data access logic, integrates with the Drizzle ORM setup, and adheres to the project's architectural patterns. Remember to adapt file paths and specific names (`<module_name>`, `<entity_name>`) according to your feature.
+```typescript
+import { DrizzleSessionMapper } from '~modules/sessions/infrastructure/persistence/drizzle/mappers/drizzle-session.mapper';
+import { DrizzleSessionRepository } from '~modules/sessions/infrastructure/persistence/drizzle/repositories/drizzle-session.repoisotyr.ts';
+
+// Corrected path
+// Add other Mappers and Repositories here
+// import { DrizzleOtherEntityMapper } from '...';
+// import { DrizzleOtherEntityRepository } from '...';
+
+export const persistence = [
+  DrizzleSessionRepository,
+  DrizzleSessionMapper,
+  // DrizzleOtherEntityRepository,
+  // DrizzleOtherEntityMapper,
+];
+```
+
+- Ensure the `persistence` array is spread into the `providers` of the `DatabaseModule`.
+- File Path: `api-bot/src/shared/infrastructure/persistence/database.module.ts`
+
+```typescript
+// ... imports ...
+import { persistence } from './providers';
+
+// Import the providers array
+// ... other imports ...
+
+@Global()
+@Module({
+  imports: [
+    // ... DrizzleSqliteModule or other DB driver module registration ...
+  ],
+  providers: [
+    { provide: BaseToken.DB_CONTEXT, useClass: DrizzleDbContext },
+    ...persistence, // Spread the persistence providers here
+  ],
+  exports: [BaseToken.DB_CONTEXT],
+})
+export class DatabaseModule {}
+```
+
+- The specific feature module (e.g., `SessionsModule`) generally does _not_ need to provide the Repository or Mapper again if they are globally provided by `DatabaseModule`. It will provide Use Cases which _inject_ the Repository interface.
+
+## Summary
+
+To create a new repository:
+
+1.  Define **Entity** (`domain/entities/`).
+2.  Define **Interface** (`domain/repositories/`) extending `IBaseRepository`.
+3.  Define **Schema** (`shared/infrastructure/persistence/schema/`).
+4.  Implement **Mapper** (`infrastructure/persistence/<orm>/mappers/`) implementing `IDataAccessMapper`.
+5.  Implement **Repository** (`infrastructure/persistence/<orm>/repositories/`) extending `DrizzleRepository` (or similar) and implementing the interface.
+6.  Add **Mapper & Repository** to `shared/infrastructure/persistence/providers.ts`.
+    Ensure the `persistence` array is included in `DatabaseModule` providers.
